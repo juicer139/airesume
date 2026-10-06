@@ -16,14 +16,14 @@ from app.core.database import get_db
 from app.models.resume_analysis import (
     ALLOWED_EXTENSIONS,
     MAX_FILE_SIZE,
-    STATUS_COMPLETED,
+    STATUS_PENDING,
+    STATUS_PROCESSING,
     ResumeAnalysis,
 )
 from app.models.user import User
-from app.schemas.analysis import AnalysisResult
 from app.schemas.resume import ResumeOut
-from app.services.ai.provider import AIProviderError, get_ai_provider
 from app.services.parser import extract_text
+from app.tasks.analysis_tasks import run_analysis
 
 router = APIRouter(prefix="/api/resumes", tags=["Resumes"])
 settings = get_settings()
@@ -112,16 +112,16 @@ def get_resume(
     return record
 
 
-@router.post("/{record_id}/analyze", response_model=AnalysisResult)
-def analyze_resume(
+@router.post("/{record_id}/analyze")
+def create_analysis_task(
     record_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """阶段 5 临时接口：同步调用 AI 验证"文本 → Prompt → LLM → JSON 校验"链路。
+    """创建异步分析任务：入队后立即返回 task_id，前端轮询状态接口。
 
-    阶段 6 会把这段逻辑搬进 Celery 任务，本接口随之改造为"创建异步任务"。
-    同步模式下 AI 要跑 10~60 秒，请求会一直挂着——这正是要异步化的原因。
+    对比阶段 5 的同步版本：接口响应从 10~60 秒降到毫秒级，
+    Web 进程不再被 AI 调用阻塞——这就是引入 Celery 的全部意义。
     """
     record = (
         db.query(ResumeAnalysis)
@@ -133,18 +133,42 @@ def analyze_resume(
     )
     if record is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "记录不存在")
+    if record.status == STATUS_PROCESSING:
+        raise HTTPException(status.HTTP_409_CONFLICT, "该记录正在分析中，请稍候")
 
-    try:
-        result = get_ai_provider().analyze_resume(
-            record.content_text, record.job_description
-        )
-    except AIProviderError as e:
-        record.status = "failed"
-        record.error_message = str(e)
-        db.commit()
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e))
-
-    record.result_json = result.model_dump()  # Pydantic v2 的序列化方法
-    record.status = STATUS_COMPLETED
+    # 重置状态并入队（支持失败后重新分析、完成后重新分析）
+    record.status = STATUS_PENDING
+    record.error_message = None
     db.commit()
-    return result
+
+    task = run_analysis.delay(record.id)  # 把任务消息推进 Redis 队列
+    return {
+        "record_id": record.id,
+        "task_id": task.id,      # Celery 任务 ID，可用于排查日志
+        "status": record.status,
+    }
+
+
+@router.get("/{record_id}/status")
+def get_analysis_status(
+    record_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """前端轮询接口：只返回轻量状态字段，不携带结果大 JSON。"""
+    record = (
+        db.query(ResumeAnalysis)
+        .filter(
+            ResumeAnalysis.id == record_id,
+            ResumeAnalysis.user_id == current_user.id,
+        )
+        .first()
+    )
+    if record is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "记录不存在")
+
+    return {
+        "record_id": record.id,
+        "status": record.status,
+        "error_message": record.error_message,
+    }

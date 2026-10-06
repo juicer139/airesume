@@ -53,6 +53,7 @@ class Settings(BaseSettings):
 
     # ---------- Redis / Celery（阶段 6 接入）----------
     REDIS_URL: str = "redis://localhost:6379/0"
+    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/1"
 
     # ---------- 文件上传（阶段 4 接入）----------
     # 相对 backend 运行目录，已被 .gitignore 排除（简历是用户隐私）

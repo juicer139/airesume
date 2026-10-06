@@ -16,5 +16,6 @@ class ResumeOut(BaseModel):
     id: int
     filename: str
     status: str
+    error_message: str | None = None  # failed 时前端展示失败原因
     job_description: str | None = None
     created_at: datetime

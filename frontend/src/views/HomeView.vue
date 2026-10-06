@@ -1,7 +1,13 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage, type UploadRequestOptions } from 'element-plus'
-import { fetchResumes, uploadResume, type ResumeItem } from '@/api/resume'
+import {
+  analyzeResume,
+  fetchResumeStatus,
+  fetchResumes,
+  uploadResume,
+  type ResumeItem,
+} from '@/api/resume'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
@@ -10,8 +16,14 @@ const records = ref<ResumeItem[]>([])
 const jobDescription = ref('')
 const uploading = ref(false)
 
-// 状态 → 标签样式映射（阶段 6/7 接入真实状态流转后自动生效）
-const STATUS_MAP: Record<string, { label: string; type: 'info' | 'warning' | 'success' | 'danger' }> = {
+// 轮询计时器表：recordId -> timerId（每条记录独立轮询，互不干扰）
+const timers = new Map<number, number>()
+
+// 状态 → 标签样式映射
+const STATUS_MAP: Record<
+  string,
+  { label: string; type: 'info' | 'warning' | 'success' | 'danger' }
+> = {
   pending: { label: '待分析', type: 'info' },
   processing: { label: '分析中', type: 'warning' },
   completed: { label: '已完成', type: 'success' },
@@ -28,6 +40,10 @@ function fmtTime(iso: string) {
 
 async function loadRecords() {
   records.value = await fetchResumes()
+  // 页面刚打开/刷新时，可能有任务正在分析，恢复对它们的轮询
+  records.value
+    .filter((r) => r.status === 'pending' || r.status === 'processing')
+    .forEach((r) => startPolling(r.id))
 }
 
 onMounted(async () => {
@@ -35,7 +51,53 @@ onMounted(async () => {
   await loadRecords()
 })
 
-/** el-upload 自定义上传：绕过组件默认的 XHR，统一走我们的 axios 实例（自动带 token） */
+// 组件卸载时清掉所有计时器，防止内存泄漏
+onUnmounted(() => {
+  timers.forEach((timer) => clearInterval(timer))
+  timers.clear()
+})
+
+function startPolling(recordId: number) {
+  if (timers.has(recordId)) return
+  const timer = window.setInterval(async () => {
+    try {
+      const s = await fetchResumeStatus(recordId)
+      const row = records.value.find((r) => r.id === recordId)
+      if (row) row.status = s.status
+
+      // 到达终态：停止轮询并提示
+      if (s.status === 'completed' || s.status === 'failed') {
+        stopPolling(recordId)
+        await loadRecords()
+        if (s.status === 'completed') {
+          ElMessage.success('分析完成')
+        } else {
+          ElMessage.error(s.error_message || '分析失败')
+        }
+      }
+    } catch {
+      stopPolling(recordId)
+    }
+  }, 2000)
+  timers.set(recordId, timer)
+}
+
+function stopPolling(recordId: number) {
+  const timer = timers.get(recordId)
+  if (timer) {
+    clearInterval(timer)
+    timers.delete(recordId)
+  }
+}
+
+async function startAnalysis(row: ResumeItem) {
+  const res = await analyzeResume(row.id)
+  row.status = res.status
+  startPolling(row.id)
+  ElMessage.success('已加入分析队列')
+}
+
+/** el-upload 自定义上传：走我们的 axios 实例（自动带 token） */
 async function doUpload(options: UploadRequestOptions) {
   const file = options.file as File
   const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase()
@@ -87,7 +149,7 @@ async function doUpload(options: UploadRequestOptions) {
       </el-upload>
 
       <el-form label-position="top" class="jd-form">
-        <el-form-item label="目标岗位 JD（可选，阶段 7 用于匹配打分）">
+        <el-form-item label="目标岗位 JD（可选，用于匹配打分）">
           <el-input
             v-model="jobDescription"
             type="textarea"
@@ -104,16 +166,30 @@ async function doUpload(options: UploadRequestOptions) {
       </template>
 
       <el-table v-if="records.length" :data="records">
-        <el-table-column prop="filename" label="文件名" min-width="180" />
+        <el-table-column prop="filename" label="文件名" min-width="160" />
         <el-table-column label="状态" width="110">
           <template #default="{ row }">
-            <el-tag :type="statusOf(row.status).type" size="small">
-              {{ statusOf(row.status).label }}
-            </el-tag>
+            <el-tooltip :disabled="row.status !== 'failed'" :content="row.error_message || ''">
+              <el-tag :type="statusOf(row.status).type" size="small">
+                {{ statusOf(row.status).label }}
+              </el-tag>
+            </el-tooltip>
           </template>
         </el-table-column>
-        <el-table-column label="上传时间" width="180">
+        <el-table-column label="上传时间" width="170">
           <template #default="{ row }">{{ fmtTime(row.created_at) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="110">
+          <template #default="{ row }">
+            <el-button
+              type="primary"
+              size="small"
+              :disabled="row.status === 'processing'"
+              @click="startAnalysis(row)"
+            >
+              {{ row.status === 'completed' ? '重新分析' : '分析' }}
+            </el-button>
+          </template>
         </el-table-column>
       </el-table>
       <el-empty v-else description="还没有上传过简历" />
