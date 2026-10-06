@@ -16,10 +16,13 @@ from app.core.database import get_db
 from app.models.resume_analysis import (
     ALLOWED_EXTENSIONS,
     MAX_FILE_SIZE,
+    STATUS_COMPLETED,
     ResumeAnalysis,
 )
 from app.models.user import User
+from app.schemas.analysis import AnalysisResult
 from app.schemas.resume import ResumeOut
+from app.services.ai.provider import AIProviderError, get_ai_provider
 from app.services.parser import extract_text
 
 router = APIRouter(prefix="/api/resumes", tags=["Resumes"])
@@ -107,3 +110,41 @@ def get_resume(
     if record is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "记录不存在")
     return record
+
+
+@router.post("/{record_id}/analyze", response_model=AnalysisResult)
+def analyze_resume(
+    record_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """阶段 5 临时接口：同步调用 AI 验证"文本 → Prompt → LLM → JSON 校验"链路。
+
+    阶段 6 会把这段逻辑搬进 Celery 任务，本接口随之改造为"创建异步任务"。
+    同步模式下 AI 要跑 10~60 秒，请求会一直挂着——这正是要异步化的原因。
+    """
+    record = (
+        db.query(ResumeAnalysis)
+        .filter(
+            ResumeAnalysis.id == record_id,
+            ResumeAnalysis.user_id == current_user.id,
+        )
+        .first()
+    )
+    if record is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "记录不存在")
+
+    try:
+        result = get_ai_provider().analyze_resume(
+            record.content_text, record.job_description
+        )
+    except AIProviderError as e:
+        record.status = "failed"
+        record.error_message = str(e)
+        db.commit()
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e))
+
+    record.result_json = result.model_dump()  # Pydantic v2 的序列化方法
+    record.status = STATUS_COMPLETED
+    db.commit()
+    return result
