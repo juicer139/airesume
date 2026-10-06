@@ -54,8 +54,11 @@ class AIProvider:
         except Exception as e:  # SDK 的网络/鉴权/限流异常统一归口
             raise AIProviderError(f"AI 接口调用失败：{e}") from e
 
-        raw = resp.choices[0].message.content
-        return _parse_analysis_result(raw)
+        message = resp.choices[0].message
+        if message.content and message.content.strip():
+            return _parse_analysis_result(message.content)
+        reasoning = getattr(message, "reasoning_content", None)
+        return _parse_analysis_result(reasoning)
 
 
 def _parse_analysis_result(raw: str | None) -> AnalysisResult:
