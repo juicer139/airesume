@@ -6,6 +6,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.resumes import router as resumes_router
 from app.api.users import router as users_router
 from app.core.config import get_settings
 
@@ -32,6 +33,7 @@ app.add_middleware(
 
 # ---------- 路由注册 ----------
 app.include_router(users_router)
+app.include_router(resumes_router)
 
 
 @app.get("/health", tags=["System"])
