@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, type UploadRequestOptions } from 'element-plus'
 import {
   analyzeResume,
@@ -11,6 +12,7 @@ import {
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
+const router = useRouter()
 
 const records = ref<ResumeItem[]>([])
 const jobDescription = ref('')
@@ -179,7 +181,7 @@ async function doUpload(options: UploadRequestOptions) {
         <el-table-column label="上传时间" width="170">
           <template #default="{ row }">{{ fmtTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="110">
+        <el-table-column label="操作" width="210">
           <template #default="{ row }">
             <el-button
               type="primary"
@@ -188,6 +190,13 @@ async function doUpload(options: UploadRequestOptions) {
               @click="startAnalysis(row)"
             >
               {{ row.status === 'completed' ? '重新分析' : '分析' }}
+            </el-button>
+            <el-button
+              v-if="row.status === 'completed'"
+              size="small"
+              @click="router.push(`/analysis/${row.id}`)"
+            >
+              查看报告
             </el-button>
           </template>
         </el-table-column>

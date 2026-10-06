@@ -16,6 +16,13 @@ const router = createRouter({
       component: () => import('@/views/LoginView.vue'),
     },
     {
+      // 分析报告页：动态路由参数 id = 分析记录 ID
+      path: '/analysis/:id',
+      name: 'analysis',
+      component: () => import('@/views/AnalysisView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/register',
       name: 'register',
       component: () => import('@/views/RegisterView.vue'),

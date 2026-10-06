@@ -21,7 +21,8 @@ from app.models.resume_analysis import (
     ResumeAnalysis,
 )
 from app.models.user import User
-from app.schemas.resume import ResumeOut
+from app.schemas.analysis import AnalysisResult
+from app.schemas.resume import ResumeDetail, ResumeOut
 from app.services.parser import extract_text
 from app.tasks.analysis_tasks import run_analysis
 
@@ -92,13 +93,13 @@ def list_resumes(
     )
 
 
-@router.get("/{record_id}", response_model=ResumeOut)
+@router.get("/{record_id}", response_model=ResumeDetail)
 def get_resume(
     record_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """查询单条记录。注意过滤条件同时带 id 和 user_id。"""
+    """记录详情（报告页数据源）：元信息 + AI 结果 + 解析出的简历原文。"""
     record = (
         db.query(ResumeAnalysis)
         .filter(
@@ -109,7 +110,21 @@ def get_resume(
     )
     if record is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "记录不存在")
-    return record
+
+    return ResumeDetail(
+        id=record.id,
+        filename=record.filename,
+        status=record.status,
+        error_message=record.error_message,
+        job_description=record.job_description,
+        content_text=record.content_text,
+        created_at=record.created_at,
+        result=(
+            AnalysisResult.model_validate(record.result_json)
+            if record.result_json
+            else None
+        ),
+    )
 
 
 @router.post("/{record_id}/analyze")

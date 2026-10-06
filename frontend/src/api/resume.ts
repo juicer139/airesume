@@ -25,6 +25,37 @@ export interface ResumeStatusResp {
   error_message: string | null
 }
 
+/** JD 匹配结果，对应后端 schemas.JdMatch */
+export interface JdMatch {
+  score: number
+  matched: string[]
+  missing: string[]
+}
+
+/** AI 分析结果，对应后端 schemas.AnalysisResult */
+export interface AnalysisResult {
+  completeness: number
+  completeness_issues: string[]
+  strengths: string[]
+  weaknesses: string[]
+  suggestions: string[]
+  overall_score: number
+  summary: string
+  jd_match: JdMatch | null
+}
+
+/** 记录详情，对应后端 schemas.ResumeDetail */
+export interface ResumeDetail {
+  id: number
+  filename: string
+  status: string
+  error_message: string | null
+  job_description: string | null
+  content_text: string
+  created_at: string
+  result: AnalysisResult | null
+}
+
 /** 上传简历：FormData（multipart/form-data），可附带岗位 JD */
 export function uploadResume(formData: FormData) {
   return request.post<FormData, ResumeItem>('/api/resumes/upload', formData)
@@ -43,4 +74,9 @@ export function analyzeResume(recordId: number) {
 /** 轮询任务状态（每 2 秒调一次） */
 export function fetchResumeStatus(recordId: number) {
   return request.get<unknown, ResumeStatusResp>(`/api/resumes/${recordId}/status`)
+}
+
+/** 记录详情（报告页数据源） */
+export function fetchResumeDetail(recordId: number) {
+  return request.get<unknown, ResumeDetail>(`/api/resumes/${recordId}`)
 }
