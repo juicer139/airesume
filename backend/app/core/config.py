@@ -30,7 +30,8 @@ class Settings(BaseSettings):
 
     # ---------- 应用基础 ----------
     APP_NAME: str = "AI Resume Analyzer"
-    DEBUG: bool = True
+    # 安全默认值：默认关 DEBUG（会暴露详细报错栈）；开发时在 .env 里显式开 true
+    DEBUG: bool = False
 
     # ---------- MySQL（阶段 2 接入）----------
     MYSQL_HOST: str = "localhost"

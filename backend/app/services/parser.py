@@ -6,6 +6,7 @@
 - 扫描件（图片型 PDF）提不出文本，明确报错提示用户，而不是存一个空串
 """
 import io
+import zipfile
 
 import pdfplumber
 from docx import Document as DocxDocument
@@ -34,16 +35,24 @@ def extract_text(file_ext: str, data: bytes) -> str:
 def _extract_pdf(data: bytes) -> str:
     """pdfplumber 逐页提取，页与页之间用换行拼接。"""
     parts: list[str] = []
-    with pdfplumber.open(io.BytesIO(data)) as pdf:
-        for page in pdf.pages:
-            page_text = page.extract_text() or ""
-            parts.append(page_text)
+    try:
+        with pdfplumber.open(io.BytesIO(data)) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text() or ""
+                parts.append(page_text)
+    # PDFSyntaxError / PSEOF 等都继承 PDFException，非 PDF 内容还会抛 ValueError
+    except Exception as e:
+        raise ValueError("文件已损坏或不是有效的 PDF 文件") from e
     return "\n".join(parts)
 
 
 def _extract_docx(data: bytes) -> str:
     """python-docx 提取段落 + 表格（很多简历模板用表格排版）。"""
-    doc = DocxDocument(io.BytesIO(data))
+    try:
+        doc = DocxDocument(io.BytesIO(data))
+    # 改扩展名的假文件本质不是 zip：BadZipFile；缺 [Content_Types].xml 则抛 KeyError
+    except (zipfile.BadZipFile, KeyError, OSError) as e:
+        raise ValueError("文件已损坏或不是有效的 Word(.docx) 文件") from e
 
     parts = [p.text for p in doc.paragraphs if p.text.strip()]
     for table in doc.tables:
