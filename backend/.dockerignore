@@ -1,0 +1,10 @@
+# 构建上下文排除清单——.env 绝不能被打进镜像！
+# （compose 用 env_file 在"运行时"注入，而不是"构建时"烤进镜像）
+venv/
+__pycache__/
+**/__pycache__/
+.env
+uploads/
+.pytest_cache/
+tests/
+.git/

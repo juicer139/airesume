@@ -1,0 +1,69 @@
+# AI 简历分析平台 - 一键部署
+# 使用: docker compose up -d --build
+# 注意: backend/worker 通过 env_file 注入 backend/.env 的真实配置，
+#       并用 environment 覆盖容器网络下的主机名（mysql/redis 代替 localhost）
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      # 从根目录 .env 读取（compose 自动加载），必须与 backend/.env 的 MYSQL_PASSWORD 一致
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请先在根目录 .env 中设置 MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: airesume
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      # ping 不需要鉴权，只探测 mysqld 是否存活
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: backend/.env
+    environment:
+      # 容器网络里用服务名互访，覆盖 .env 里的 localhost
+      MYSQL_HOST: mysql
+      REDIS_URL: redis://redis:6379/0
+      DEBUG: "false"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - uploads_data:/app/uploads
+    # 不映射端口：只有 nginx 需要访问它，走内部网络更安全
+
+  worker:
+    build: ./backend
+    restart: unless-stopped
+    env_file: backend/.env
+    environment:
+      MYSQL_HOST: mysql
+      REDIS_URL: redis://redis:6379/0
+      DEBUG: "false"
+    command: celery -A app.core.celery_app worker --loglevel=info --pool=solo
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:
+  uploads_data:
