@@ -6,6 +6,7 @@
 
 include 显式声明任务模块：Worker 启动时会 import 它们完成任务注册，
 否则 Worker 收到消息也不知道该执行哪个函数。
+celery -A app.core.celery_app worker --loglevel=info --pool=solo
 """
 from celery import Celery
 
@@ -29,5 +30,6 @@ celery_app.conf.update(
     task_acks_late=True,
     # AI 任务耗时几十秒，Worker 一次只预取 1 个任务，
     # 防止某个 Worker 攥着一堆任务让后面的用户干等
+    task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=1,
 )

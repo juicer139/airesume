@@ -23,6 +23,13 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      // 历史对比页：query 传两个记录 ID，如 /compare?ids=3,5
+      path: '/compare',
+      name: 'compare',
+      component: () => import('@/views/CompareView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/register',
       name: 'register',
       component: () => import('@/views/RegisterView.vue'),

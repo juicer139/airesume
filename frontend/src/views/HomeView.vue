@@ -40,6 +40,25 @@ function fmtTime(iso: string) {
   return new Date(iso).toLocaleString('zh-CN')
 }
 
+// ---- 历史对比：勾选两条已完成分析的记录 ----
+const selected = ref<ResumeItem[]>([])
+
+function selectableRow(row: ResumeItem) {
+  return row.status === 'completed' // 只有完成分析的记录可参与对比
+}
+
+function onSelectionChange(rows: ResumeItem[]) {
+  selected.value = rows
+}
+
+function goCompare() {
+  // 勾选顺序即 A/B 顺序：第一个是基准，第二个是对比对象
+  router.push({
+    path: '/compare',
+    query: { ids: selected.value.map((r) => r.id).join(',') },
+  })
+}
+
 async function loadRecords() {
   records.value = await fetchResumes()
   // 页面刚打开/刷新时，可能有任务正在分析，恢复对它们的轮询
@@ -164,10 +183,25 @@ async function doUpload(options: UploadRequestOptions) {
 
     <el-card class="history-card">
       <template #header>
-        <span>我的分析记录</span>
+        <div class="history-header">
+          <span>我的分析记录</span>
+          <el-button
+            type="primary"
+            size="small"
+            :disabled="selected.length !== 2"
+            @click="goCompare"
+          >
+            对比分析（{{ selected.length }}/2）
+          </el-button>
+        </div>
       </template>
 
-      <el-table v-if="records.length" :data="records">
+      <el-table
+        v-if="records.length"
+        :data="records"
+        @selection-change="onSelectionChange"
+      >
+        <el-table-column type="selection" width="45" :selectable="selectableRow" />
         <el-table-column prop="filename" label="文件名" min-width="160" />
         <el-table-column label="状态" width="110">
           <template #default="{ row }">
@@ -209,5 +243,10 @@ async function doUpload(options: UploadRequestOptions) {
 <style scoped>
 .history-card {
   margin-top: 16px;
+}
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 </style>

@@ -35,3 +35,17 @@ class ResumeDetail(BaseModel):
     created_at: datetime
     # result_json 是 dict，这里显式校验成 AnalysisResult，保证结构可信
     result: AnalysisResult | None = None
+
+
+class CompareItem(BaseModel):
+    """历史对比条目：只取对比需要的字段，避免传输整个报告。"""
+
+    id: int
+    filename: str
+    created_at: datetime
+    overall_score: int
+    completeness: int
+    jd_match_score: int | None = None
+    strengths: list[str]
+    weaknesses: list[str]
+    suggestions: list[str]

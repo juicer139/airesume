@@ -80,3 +80,23 @@ export function fetchResumeStatus(recordId: number) {
 export function fetchResumeDetail(recordId: number) {
   return request.get<unknown, ResumeDetail>(`/api/resumes/${recordId}`)
 }
+
+/** 历史对比条目，对应后端 schemas.CompareItem */
+export interface CompareItem {
+  id: number
+  filename: string
+  created_at: string
+  overall_score: number
+  completeness: number
+  jd_match_score: number | null
+  strengths: string[]
+  weaknesses: string[]
+  suggestions: string[]
+}
+
+/** 对比两条已完成的分析（ids 形如 "3,5"，第一个是基准 A） */
+export function fetchCompare(ids: string) {
+  return request.get<unknown, CompareItem[]>('/api/resumes/compare', {
+    params: { ids },
+  })
+}

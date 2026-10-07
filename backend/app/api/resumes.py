@@ -7,7 +7,16 @@
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -16,13 +25,14 @@ from app.core.database import get_db
 from app.models.resume_analysis import (
     ALLOWED_EXTENSIONS,
     MAX_FILE_SIZE,
+    STATUS_COMPLETED,
     STATUS_PENDING,
     STATUS_PROCESSING,
     ResumeAnalysis,
 )
 from app.models.user import User
 from app.schemas.analysis import AnalysisResult
-from app.schemas.resume import ResumeDetail, ResumeOut
+from app.schemas.resume import CompareItem, ResumeDetail, ResumeOut
 from app.services.parser import extract_text
 from app.tasks.analysis_tasks import run_analysis
 
@@ -91,6 +101,61 @@ def list_resumes(
         .limit(50)
         .all()
     )
+
+
+@router.get("/compare", response_model=list[CompareItem])
+def compare_resumes(
+    ids: str = Query(..., description="逗号分隔的两个记录 ID，如 ?ids=3,5"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """对比两条已完成的分析记录。
+
+    注意：本路由必须声明在 /{record_id} 之前——否则 "compare" 会被
+    当作 record_id 尝试转 int，直接 422。路由声明顺序就是匹配顺序。
+    """
+    parts = [p.strip() for p in ids.split(",") if p.strip()]
+    if len(parts) != 2 or not all(p.isdigit() for p in parts):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "请恰好提供两个记录 ID，如 ?ids=3,5"
+        )
+    id_list = [int(p) for p in parts]
+
+    # in_ 一次查两条，且必须带 user_id——防止越权对比别人的记录
+    records = (
+        db.query(ResumeAnalysis)
+        .filter(
+            ResumeAnalysis.id.in_(id_list),
+            ResumeAnalysis.user_id == current_user.id,
+        )
+        .all()
+    )
+    if len(records) != 2:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "记录不存在或无权访问")
+
+    items: list[CompareItem] = []
+    # 按用户传入的顺序返回（第一个是基准 A，第二个是 B）
+    for record in sorted(records, key=lambda r: id_list.index(r.id)):
+        if record.status != STATUS_COMPLETED or not record.result_json:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"记录 {record.id} 尚未完成分析，无法对比",
+            )
+        result = AnalysisResult.model_validate(record.result_json)
+        items.append(
+            CompareItem(
+                id=record.id,
+                filename=record.filename,
+                created_at=record.created_at,
+                overall_score=result.overall_score,
+                completeness=result.completeness,
+                jd_match_score=result.jd_match.score if result.jd_match else None,
+                strengths=result.strengths,
+                weaknesses=result.weaknesses,
+                suggestions=result.suggestions,
+            )
+        )
+    return items
 
 
 @router.get("/{record_id}", response_model=ResumeDetail)
