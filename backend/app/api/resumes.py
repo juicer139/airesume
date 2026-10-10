@@ -197,7 +197,7 @@ def get_resume(
         ),
     )
 
-@router.delete("/{record_id}/")
+@router.delete("/{record_id}")
 def delete_resume(
     record_id: int,
     db: Session = Depends(get_db),
