@@ -31,6 +31,10 @@ def run_analysis(record_id: int) -> str:
         if record is None:
             logger.warning("分析任务找不到记录 %s", record_id)
             return "record_not_found"
+        # 记录在排队期间被软删除：直接放弃，避免把已删记录又写回 completed
+        if record.deleted_at is not None:
+            logger.warning("分析任务记录 %s 已删除，跳过", record_id)
+            return "record_deleted"
 
         record.status = STATUS_PROCESSING
         db.commit()

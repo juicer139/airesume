@@ -113,6 +113,7 @@ npm run dev        # http://localhost:5173，/api 已配置代理到 8000
 | GET | `/api/resumes/{id}/status` | 轮询任务状态 |
 | GET | `/api/resumes/{id}` | 分析报告详情 |
 | GET | `/api/resumes/compare?ids=a,b` | 对比两条已完成分析 |
+| DELETE | `/api/resumes/{id}` | 删除简历（软删除） |
 
 完整交互文档见运行时的 `/docs`（Swagger UI）。
 

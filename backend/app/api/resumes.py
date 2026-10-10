@@ -5,6 +5,7 @@
 2. 上传三重校验：扩展名白名单 → 大小限制 → 内容解析兜底
 """
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import (
@@ -96,7 +97,10 @@ def list_resumes(
     """当前用户的分析记录，最新在前（历史页数据源）。"""
     return (
         db.query(ResumeAnalysis)
-        .filter(ResumeAnalysis.user_id == current_user.id)
+        .filter(
+            ResumeAnalysis.user_id == current_user.id,
+            ResumeAnalysis.deleted_at.is_(None),
+            ) 
         .order_by(ResumeAnalysis.created_at.desc())
         .limit(50)
         .all()
@@ -127,7 +131,8 @@ def compare_resumes(
         .filter(
             ResumeAnalysis.id.in_(id_list),
             ResumeAnalysis.user_id == current_user.id,
-        )
+            ResumeAnalysis.deleted_at.is_(None),
+        ) 
         .all()
     )
     if len(records) != 2:
@@ -170,7 +175,8 @@ def get_resume(
         .filter(
             ResumeAnalysis.id == record_id,
             ResumeAnalysis.user_id == current_user.id,
-        )
+            ResumeAnalysis.deleted_at.is_(None),
+        ) 
         .first()
     )
     if record is None:
@@ -191,6 +197,37 @@ def get_resume(
         ),
     )
 
+@router.delete("/{record_id}/")
+def delete_resume(
+    record_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """删除分析记录（软删除：置 deleted_at，不删行、不删磁盘文件）。
+
+    两个刻意的设计：
+    1. 已删记录再删返回 404——幂等语义清晰，也避免暴露"这条到底存不存在"
+    2. processing 状态返回 409——Celery Worker 此刻正拿着这条记录跑 AI，
+       让它等分析结束再删，避免任务写回与删除产生竞态
+    """
+    record = (
+        db.query(ResumeAnalysis)
+        .filter(
+            ResumeAnalysis.id == record_id,
+            ResumeAnalysis.user_id == current_user.id,
+            ResumeAnalysis.deleted_at.is_(None),
+        ) 
+        .first()
+    )
+    if record is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "记录不存在")
+    if record.status == STATUS_PROCESSING:
+        raise HTTPException(status.HTTP_409_CONFLICT, "该记录正在分析中，请稍候")
+    record.deleted_at = datetime.now()
+    db.commit()
+    return {"id": record.id, "message": "删除成功"}   
+
+
 
 @router.post("/{record_id}/analyze")
 def create_analysis_task(
@@ -208,7 +245,8 @@ def create_analysis_task(
         .filter(
             ResumeAnalysis.id == record_id,
             ResumeAnalysis.user_id == current_user.id,
-        )
+            ResumeAnalysis.deleted_at.is_(None),
+        ) 
         .first()
     )
     if record is None:
@@ -241,7 +279,8 @@ def get_analysis_status(
         .filter(
             ResumeAnalysis.id == record_id,
             ResumeAnalysis.user_id == current_user.id,
-        )
+            ResumeAnalysis.deleted_at.is_(None),
+        ) 
         .first()
     )
     if record is None:

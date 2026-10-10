@@ -100,3 +100,14 @@ export function fetchCompare(ids: string) {
     params: { ids },
   })
 }
+
+/** 删除接口的响应 */
+export interface ResumeDeleteResp {
+  id: number
+  message: string
+}
+
+/** 删除分析记录（软删除，分析中会返回 409） */
+export function deleteResume(recordId: number) {
+  return request.delete<unknown, ResumeDeleteResp>(`/api/resumes/${recordId}`)
+}

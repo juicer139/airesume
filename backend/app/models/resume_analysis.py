@@ -55,3 +55,7 @@ class ResumeAnalysis(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+        # ---- 软删除 ----
+    # NULL = 正常记录；非 NULL = 用户已删除（列表/详情/对比一律过滤掉）。
+    # 软删除不真删行、不删磁盘文件，为将来"恢复"和审计留余地。
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)

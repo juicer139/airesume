@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, type UploadRequestOptions } from 'element-plus'
+import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
 import {
   analyzeResume,
   fetchResumeStatus,
   fetchResumes,
   uploadResume,
+  deleteResume,
   type ResumeItem,
 } from '@/api/resume'
 import { useAuthStore } from '@/stores/auth'
@@ -20,6 +21,8 @@ const uploading = ref(false)
 
 // 轮询计时器表：recordId -> timerId（每条记录独立轮询，互不干扰）
 const timers = new Map<number, number>()
+// 正在删除中的记录 id（防重复点击）
+const deletingIds = ref(new Set<number>())
 
 // 状态 → 标签样式映射
 const STATUS_MAP: Record<
@@ -116,6 +119,30 @@ async function startAnalysis(row: ResumeItem) {
   row.status = res.status
   startPolling(row.id)
   ElMessage.success('已加入分析队列')
+}
+
+async function onDelete(row: ResumeItem) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除「${row.filename}」吗？删除后列表中将不再显示。`,
+      '删除确认',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+    )
+  } catch {
+    return // 用户点了取消
+  }
+
+  deletingIds.value.add(row.id)
+  try {
+    await deleteResume(row.id)
+    stopPolling(row.id) // 别让已删记录的轮询继续跑
+    ElMessage.success('删除成功')
+    await loadRecords()
+  } catch {
+    // 409（分析中）等错误已由 request.ts 统一弹提示，这里只兜底不额外处理
+  } finally {
+    deletingIds.value.delete(row.id)
+  }
 }
 
 /** el-upload 自定义上传：走我们的 axios 实例（自动带 token） */
@@ -215,7 +242,7 @@ async function doUpload(options: UploadRequestOptions) {
         <el-table-column label="上传时间" width="170">
           <template #default="{ row }">{{ fmtTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="210">
+        <el-table-column label="操作" width="270">
           <template #default="{ row }">
             <el-button
               type="primary"
@@ -231,6 +258,15 @@ async function doUpload(options: UploadRequestOptions) {
               @click="router.push(`/analysis/${row.id}`)"
             >
               查看报告
+            </el-button>
+            <el-button
+              v-if="['completed', 'pending', 'failed'].includes(row.status)"
+              size="small"
+              type="danger"
+              @click="onDelete(row)"
+              :loading="deletingIds.has(row.id)"
+            >
+              删除简历
             </el-button>
           </template>
         </el-table-column>
